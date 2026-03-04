@@ -1047,8 +1047,6 @@ def analyze_multiple_symbols(symbols, username=None, password=None, recent_signa
 #     analyze_multiple_symbols(symbols_list)
 
 # ========== CLIENT INPUTS ==========
-from fastapi import FastAPI
-from pydantic import BaseModel
 from typing import List, Optional, Any
 import numpy as np
 import pandas as pd
@@ -1056,7 +1054,6 @@ import pandas as pd
 # TODO: import the real Interval and ForexAnalyzer from your own modules
 # from your_module import Interval, ForexAnalyzer
 
-app = FastAPI()
 
 TIMEFRAME_MAP = {
     "1m": Interval.in_1_minute,
