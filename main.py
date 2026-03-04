@@ -2,7 +2,7 @@
 
 # !pip install --upgrade --no-cache-dir git+https://github.com/rongardF/tvdatafeed.git
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -1314,3 +1314,7 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze_endpoint(req: AnalyzeRequest):
     return analyze_symbols(req.symbols, req.timeframe, req.bars_to_show)
+
+@app.options("/analyze")
+def options_analyze():
+    return Response(status_code=200)
