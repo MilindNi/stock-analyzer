@@ -1,10 +1,18 @@
 # @title
 
 # !pip install --upgrade --no-cache-dir git+https://github.com/rongardF/tvdatafeed.git
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # later you can restrict to your Lovable URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 import pandas as pd
 import numpy as np
