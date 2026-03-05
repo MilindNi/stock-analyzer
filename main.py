@@ -20,6 +20,7 @@ import pandas as pd
 import numpy as np
 # import matplotlib.pyplot as plt
 import warnings
+import plotly.graph_objs as go
 from datetime import datetime
 from tvDatafeed import TvDatafeed, Interval
 import pytz
@@ -884,7 +885,7 @@ class ForexAnalyzer:
         why = "Reasons: " + "; ".join(reasons) if reasons else "Neutral indicators."
         print(f"\nRecommended Action: {action} - {why}")
 
-    def plot_structure_and_patterns_plotly(self, symbol: str, periods: int) -> str | None:
+    def plot_structure_and_patterns_plotly(self, symbol: str, periods: int) :
         """
         Build an interactive Plotly chart and return HTML (for Lovable/Render).
         """
