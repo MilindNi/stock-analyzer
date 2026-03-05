@@ -3,6 +3,8 @@
 # !pip install --upgrade --no-cache-dir git+https://github.com/rongardF/tvdatafeed.git
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Response
+from plotly.subplots import make_subplots
+
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -882,38 +884,167 @@ class ForexAnalyzer:
         why = "Reasons: " + "; ".join(reasons) if reasons else "Neutral indicators."
         print(f"\nRecommended Action: {action} - {why}")
 
-    def plot(self, symbol):
+    def plot_structure_and_patterns_plotly(self, symbol: str, periods: int) -> str | None:
+        """
+        Build an interactive Plotly chart and return HTML (for Lovable/Render).
+        """
         if self.data is None or self.data.empty:
-            print("No data to plot.")
-            return
-        fig, axs = plt.subplots(4,1, figsize=(14,12), sharex=True)
-        axs[0].plot(self.data.index, self.data['Close'], label='Close')
-        axs[0].plot(self.data.index, self.data['SMA_20'], label='SMA20', alpha=0.7)
-        axs[0].plot(self.data.index, self.data['SMA_50'], label='SMA50', alpha=0.7)
-        axs[0].fill_between(self.data.index, self.data['BB_lower'], self.data['BB_upper'], alpha=0.2, label='BBands')
-        buy = self.data[self.data['Signal'] == 1]
-        sell = self.data[self.data['Signal'] == -1]
-        axs[0].scatter(buy.index, buy['Close'], marker='^', c='g', label='Buy')
-        axs[0].scatter(sell.index, sell['Close'], marker='v', c='r', label='Sell')
-        axs[0].set_title(f'{symbol} Price & Signals')
-        axs[0].legend()
-        axs[0].grid(True)
-        axs[1].plot(self.data.index, self.data['RSI'], label='RSI', color='purple')
-        axs[1].axhline(30, color='green', linestyle='--')
-        axs[1].axhline(70, color='red', linestyle='--')
-        axs[1].set_title('RSI')
-        axs[1].grid(True)
-        axs[2].plot(self.data.index, self.data['MACD'], label='MACD')
-        axs[2].plot(self.data.index, self.data['MACD_signal'], label='Signal')
-        axs[2].bar(self.data.index, self.data['MACD'] - self.data['MACD_signal'], alpha=0.5)
-        axs[2].set_title('MACD')
-        axs[2].legend()
-        axs[2].grid(True)
-        axs[3].plot(self.data.index, self.data['ATR'], label='ATR', color='orange')
-        axs[3].set_title('ATR (Volatility)')
-        axs[3].grid(True)
-        plt.tight_layout()
-        plt.show()
+            return None
+
+        df = self.data.tail(periods).copy()
+
+        price_range = df['High'].max() - df['Low'].min()
+        offset = price_range * 0.01
+
+        fig = make_subplots(rows=1, cols=1, shared_xaxes=True)
+
+        # Candlesticks
+        fig.add_trace(
+            go.Candlestick(
+                x=df.index,
+                open=df['Open'],
+                high=df['High'],
+                low=df['Low'],
+                close=df['Close'],
+                name="Price"
+            ),
+            row=1, col=1
+        )
+
+        # Structure
+        hh = df[df['Higher_High'] == 1]
+        hl = df[df['Higher_Low'] == 1]
+        ll = df[df['Lower_Low'] == 1]
+        lh = df[df['Lower_High'] == 1]
+
+        fig.add_trace(
+            go.Scatter(
+                x=hh.index,
+                y=hh['High'] + 3*offset,
+                mode='markers+text',
+                text=['HH'] * len(hh),
+                textposition='top center',
+                marker=dict(color='blue', size=9, symbol='triangle-up'),
+                name='Higher High'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=lh.index,
+                y=lh['High'] + 1*offset,
+                mode='markers+text',
+                text=['LH'] * len(lh),
+                textposition='top center',
+                marker=dict(color='orange', size=9, symbol='triangle-down'),
+                name='Lower High'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=hl.index,
+                y=hl['Low'] - 1*offset,
+                mode='markers+text',
+                text=['HL'] * len(hl),
+                textposition='bottom center',
+                marker=dict(color='green', size=9, symbol='triangle-down'),
+                name='Higher Low'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=ll.index,
+                y=ll['Low'] - 3*offset,
+                mode='markers+text',
+                text=['LL'] * len(ll),
+                textposition='bottom center',
+                marker=dict(color='red', size=9, symbol='triangle-up'),
+                name='Lower Low'
+            ),
+            row=1, col=1
+        )
+
+        # Patterns
+        hammer = df[df['Hammer'] > 0]
+        engulf = df[df['Bullish_Engulfing'] > 0]
+        pinbar = df[df['Pin_bar'] > 0]
+        mstar = df[df['Morning_Star'] > 0]
+        estar = df[df['Evening_Star'] < 0]
+
+        fig.add_trace(
+            go.Scatter(
+                x=hammer.index,
+                y=hammer['Low'] - 5*offset,
+                mode='markers',
+                marker=dict(color='green', size=8, symbol='circle'),
+                name='Hammer',
+                hovertext=['Hammer'] * len(hammer),
+                hoverinfo='text+x+y'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=engulf.index,
+                y=engulf['Low'] - 7*offset,
+                mode='markers',
+                marker=dict(color='darkgreen', size=8, symbol='square'),
+                name='Bull Engulfing',
+                hovertext=['Bullish Engulfing'] * len(engulf),
+                hoverinfo='text+x+y'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=pinbar.index,
+                y=pinbar['Low'] - 9*offset,
+                mode='markers',
+                marker=dict(color='teal', size=8, symbol='diamond'),
+                name='Pin Bar',
+                hovertext=['Pin bar'] * len(pinbar),
+                hoverinfo='text+x+y'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=mstar.index,
+                y=mstar['Low'] - 11*offset,
+                mode='markers',
+                marker=dict(color='purple', size=10, symbol='star'),
+                name='Morning Star',
+                hovertext=['Morning Star'] * len(mstar),
+                hoverinfo='text+x+y'
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=estar.index,
+                y=estar['High'] + 5*offset,
+                mode='markers',
+                marker=dict(color='red', size=10, symbol='x'),
+                name='Evening Star',
+                hovertext=['Evening Star'] * len(estar),
+                hoverinfo='text+x+y'
+            ),
+            row=1, col=1
+        )
+
+        fig.update_layout(
+            title=f"{symbol} – Structure & Patterns",
+            xaxis_title="Time",
+            yaxis_title="Price",
+            xaxis_rangeslider_visible=False,
+            hovermode='x unified'
+        )
+
+        # Return HTML snippet for embedding
+        return fig.to_html(full_html=False)
+
 
     def plot_recent(self, symbol, periods=20):
         if self.data is None or self.data.empty:
@@ -1121,6 +1252,7 @@ class SymbolResult(BaseModel):
     last_explosive_gap_up: Optional[str]
     last_morning_stars: Optional[List[str]]
     csv_filename: Optional[str]
+    chart_html: Optional[str]
 
 class AnalyzeResponse(BaseModel):
     results: List[SymbolResult]
@@ -1177,6 +1309,8 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
         # save csv (optional, still on server disk)
         csv_name = f"{symbol}_data.csv"
         analyzer.data.to_csv(csv_name)
+        chart_html = analyzer.plot_structure_and_patterns_plotly(symbol, int(bars_to_show))
+
 
         df = analyzer.data
 
@@ -1300,6 +1434,7 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
             last_explosive_gap_up=str(recent_explosive_gap_dt) if recent_explosive_gap_dt is not None else None,
             last_morning_stars=[str(x) for x in recent_morning_star_dt] if recent_morning_star_dt else None,
             csv_filename=csv_name,
+            chart_html=chart_html,
         )
 
         results.append(res)
