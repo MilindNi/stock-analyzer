@@ -3,5 +3,5 @@ uvicorn
 yfinance
 pandas
 numpy
-
+plotly
 git+https://github.com/rongardF/tvdatafeed.git
