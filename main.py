@@ -1528,7 +1528,8 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
             recent_multi_HL_break_dt = recent_multi_HL_break["datetime"].iloc[0]
             recent_multi_HL_break_value = int(recent_multi_HL_break["Count_Higher_Low_Breaches"].iloc[0])
 
-        
+        start_datetime = analyzer.data.reset_index().head(1)["datetime"].iloc[0]
+        start_datetime_str = start_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
         res = SymbolResult(
             symbol=symbol,
