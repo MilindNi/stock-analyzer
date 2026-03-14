@@ -402,7 +402,7 @@ class ForexAnalyzer:
         ll_indices = []
 
         for i in range(n - 1):  # up to n-2, because we look at i+1
-            if low[i] < last_ll_low and close[i+1] > close[i]:
+            if low[i] < last_ll_low and close[i+1] > close[i] and high[i+1] > high[i]:
                 LL[i] = 1
                 ll_indices.append(i)
                 last_ll_low = low[i]
@@ -545,6 +545,182 @@ class ForexAnalyzer:
             else:
                 prev_hl_list.append(np.nan)
         self.data['Prev_Higher_Low'] = prev_hl_list
+
+    def compute_primary_trend(self):
+        """
+        Primary trend from price slope (Close):
+          - rolling regression slope over 'window' bars
+          - UP if slope>0, DOWN if slope<0, SIDE if no slope yet
+          Writes: PrimaryTrend per bar.
+        """
+        window = 30
+
+        df = self.data.copy()
+        if df is None or df.empty or "Close" not in df.columns:
+            return
+
+        close = df["Close"].values
+        n = len(close)
+        slopes = np.full(n, np.nan)
+
+        x = np.arange(window)
+        xm = x.mean()
+        denom = ((x - xm) ** 2).sum()
+
+        for i in range(window - 1, n):
+            y = close[i - window + 1 : i + 1]
+            ym = y.mean()
+            num = ((x - xm) * (y - ym)).sum()
+            slopes[i] = num / denom if denom != 0 else np.nan
+
+        labels = []
+        for s in slopes:
+            if np.isnan(s):
+                labels.append("SIDE")
+            elif s > 0:
+                labels.append("UP")
+            elif s < 0:
+                labels.append("DOWN")
+            else:
+                labels.append("SIDE")
+
+        df["PrimaryTrend"] = labels
+        self.data = df
+
+
+
+    def summarize_primary_trend(self):
+        """
+        Uses PrimaryTrend to describe major legs:
+          - General bias.
+          - Major UP/DOWN legs and the last one.
+        """
+        min_len = 15
+
+        df = self.data
+        if df is None or df.empty or "PrimaryTrend" not in df.columns:
+            return "Primary trend not computed."
+
+        tr = df["PrimaryTrend"]
+
+        # segment
+        change_mask = tr != tr.shift()
+        grp = change_mask.cumsum()
+        segs = df.groupby(grp).agg(
+            label=("PrimaryTrend", "first"),
+            start=("PrimaryTrend", lambda s: s.index[0]),
+            end=("PrimaryTrend",   lambda s: s.index[-1]),
+            length=("PrimaryTrend", "size"),
+        ).reset_index(drop=True)
+
+        major = segs[
+            (segs["label"].isin(["UP", "DOWN"])) & (segs["length"] >= min_len)
+        ].reset_index(drop=True)
+
+        if major.empty:
+            return "No major primary trend segments detected."
+
+        up = (tr == "UP").sum()
+        down = (tr == "DOWN").sum()
+        if up > down:
+            general = "General uptrend over the period."
+        elif down > up:
+            general = "General downtrend over the period."
+        else:
+            general = "No clear dominant trend over the period."
+
+        lines = [general]
+
+        prev = None
+        for _, row in major.iterrows():
+            lab = row["label"]
+            s = row["start"]
+            e = row["end"]
+            if prev in ("UP", "DOWN") and lab in ("UP", "DOWN") and lab != prev:
+                lines.append(
+                    f"Trend change {prev}->{lab} around {s.strftime('%d %b %Y %H:%M')}."
+                )
+            prev = lab
+
+        last_ts = df.index[-1]
+        last_trend = major.iloc[-1]["label"]
+        last_start = major.iloc[-1]["start"]
+
+        lines.append(
+            f"Latest major trend is {last_trend} since {last_start.strftime('%d %b %Y %H:%M')} "
+            f"(as of {last_ts.strftime('%d %b %Y %H:%M')})."
+        )
+
+        return " ".join(lines)
+
+
+
+
+    def summarize_breaches_in_primary_legs(self):
+        """
+        For each major primary trend leg:
+          - If UP: report first Higher_Low breach (Count_Higher_Low_Breaches >= 1).
+          - If DOWN: report first Lower_High breach (Count_Lower_High_Breaches >= 1).
+        """
+        min_len = 15
+
+        df = self.data
+        needed = [
+            "PrimaryTrend",
+            "Count_Higher_Low_Breaches",
+            "Count_Lower_High_Breaches",
+        ]
+        if df is None or df.empty or any(c not in df.columns for c in needed):
+            return ""
+
+        tr = df["PrimaryTrend"]
+
+        # major legs as before
+        change_mask = tr != tr.shift()
+        grp = change_mask.cumsum()
+        segs = df.groupby(grp).agg(
+            label=("PrimaryTrend", "first"),
+            start=("PrimaryTrend", lambda s: s.index[0]),
+            end=("PrimaryTrend",   lambda s: s.index[-1]),
+            length=("PrimaryTrend", "size"),
+        ).reset_index(drop=True)
+
+        major = segs[
+            (segs["label"].isin(["UP", "DOWN"])) & (segs["length"] >= min_len)
+        ].reset_index(drop=True)
+
+        if major.empty:
+            return ""
+
+        lines = []
+
+        for _, row in major.iterrows():
+            lab = row["label"]
+            s = row["start"]
+            e = row["end"]
+            leg_df = df.loc[s:e]
+
+            if lab == "UP":
+                # first HL breach in this UP leg
+                breaches = leg_df[leg_df["Count_Higher_Low_Breaches"] >= 1]
+                if not breaches.empty:
+                    ts = breaches.index[0]
+                    lines.append(
+                        f"In UP leg from {s.strftime('%d %b %Y')} to {e.strftime('%d %b %Y')}, "
+                        f"first HL breach on {ts.strftime('%d %b %Y %H:%M')}."
+                    )
+            elif lab == "DOWN":
+                # first LH breach in this DOWN leg
+                breaches = leg_df[leg_df["Count_Lower_High_Breaches"] >= 1]
+                if not breaches.empty:
+                    ts = breaches.index[0]
+                    lines.append(
+                        f"In DOWN leg from {s.strftime('%d %b %Y')} to {e.strftime('%d %b %Y')}, "
+                        f"first LH breach on {ts.strftime('%d %b %Y %H:%M')}."
+                    )
+
+        return " ".join(lines)
+
 
     def _detect_patterns(self):
         self.data['Golden_Cross'] = ((self.data['SMA_20'] > self.data['SMA_50']) & (self.data['SMA_20'].shift() <= self.data['SMA_50'].shift())).astype(int)
@@ -1244,6 +1420,7 @@ class SymbolResult(BaseModel):
     symbol: str
     start_datetime: Optional[str]
     trend_summary: str
+    breach_summary: str
     last_buy_signal: Optional[str]
     last_higher_low: Optional[str]
     last_higher_low_break: Optional[str]
@@ -1306,6 +1483,14 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
         analyzer.detect_explosive_gap_buys()
         analyzer.generate_signals()
         analyzer.score_break_confirmations()
+        analyzer.compute_primary_trend()
+        primary_text = analyzer.summarize_primary_trend()
+        breach_text  = analyzer.summarize_breaches_in_primary_legs()
+
+        # print(primary_text)
+        # if breach_text:
+        #     print(breach_text)
+
 
         # save csv (optional, still on server disk)
         csv_name = f"{symbol}_data.csv"
@@ -1343,89 +1528,13 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
             recent_multi_HL_break_dt = recent_multi_HL_break["datetime"].iloc[0]
             recent_multi_HL_break_value = int(recent_multi_HL_break["Count_Higher_Low_Breaches"].iloc[0])
 
-        # --- trend calculation block (unchanged logic) ---
-        df = df.copy()
-        close = df["Close"].values
-        n = len(df)
-        window = 10
-        dominance = 0.6
-
-        up = np.zeros(n, dtype=int)
-        down = np.zeros(n, dtype=int)
-        for i in range(1, n):
-            if close[i] > close[i - 1]:
-                up[i] = 1
-            elif close[i] < close[i - 1]:
-                down[i] = 1
-
-        up_count = pd.Series(up).rolling(window, min_periods=window).sum().values
-        down_count = pd.Series(down).rolling(window, min_periods=window).sum().values
-
-        trend = np.full(n, "sideways", dtype=object)
-        current_trend = "sideways"
-
-        for i in range(n):
-            if i < window:
-                trend[i] = current_trend
-                continue
-
-            u = up_count[i]
-            d = down_count[i]
-            total = u + d
-            if total == 0:
-                trend[i] = current_trend
-                continue
-
-            frac_up = u / total
-            frac_down = d / total
-
-            if frac_up >= dominance:
-                current_trend = "uptrend"
-            elif frac_down >= dominance:
-                current_trend = "downtrend"
-
-            trend[i] = current_trend
-
-        df["trend"] = trend
-        usable = df.copy()
-        usable["regime"] = df["trend"]
-        grp_id = (usable["regime"] != usable["regime"].shift()).cumsum()
-        usable["grp"] = grp_id
-
-        segments = (
-            usable
-            .groupby("grp")
-            .agg(
-                regime=("regime", "first"),
-                start_time=("grp", lambda x: usable.loc[x.index[0]].name),
-                end_time=("grp", lambda x: usable.loc[x.index[-1]].name),
-            )
-            .reset_index(drop=True)
-        )
-
-        parts = []
-        for j, seg in segments.iterrows():
-            reg = seg["regime"]
-            start_dt = seg["start_time"]
-            end_dt = seg["end_time"]
-            start_str = start_dt.strftime("%d %b %Y %H:%M")
-            end_str = end_dt.strftime("%d %b %Y %H:%M")
-            prefix = "" if j == 0 else "then "
-            if start_str == end_str:
-                parts.append(f"{prefix}{reg} on {start_str}")
-            else:
-                parts.append(f"{prefix}{reg} from {start_str} to {end_str}")
-
-        summary = ", ".join(parts)
-
-        # start date from dataframe
-        start_datetime = analyzer.data.reset_index().head(1)["datetime"].iloc[0]
-        start_datetime_str = start_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        
 
         res = SymbolResult(
             symbol=symbol,
             start_datetime=start_datetime_str,
-            trend_summary=summary,
+            trend_summary=primary_text,
+            breach_summary=str(breach_text) if breach_text is not None else None,
             last_buy_signal=str(last_signal_dt) if last_signal_dt is not None else None,
             last_higher_low=str(last_HL_dt) if last_HL_dt is not None else None,
             last_higher_low_break=str(last_HL_break_dt) if last_HL_break_dt is not None else None,
