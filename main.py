@@ -721,6 +721,187 @@ class ForexAnalyzer:
 
         return " ".join(lines)
 
+    def detect_bullish_choch(self):
+        """
+        Bullish CHoCH in a downtrend:
+
+          - Downtrend context: at least one Lower_Low before a Lower_High (LH).
+          - CHoCH bar: first bar AFTER LH where Close > LH's High.
+
+        Returns:
+          type = 'Bullish_CHoCH'
+          lh_time, choch_time, lh_price
+        """
+        max_bars_after_lh = 40
+
+        df = self.data
+        needed = {"High", "Low", "Close", "Lower_High", "Lower_Low"}
+        if df is None or df.empty or not needed.issubset(df.columns):
+            return pd.DataFrame(columns=["type", "lh_time", "choch_time", "lh_price"])
+
+        high = df["High"]
+        low = df["Low"]
+        close = df["Close"]
+        lh_flag = df["Lower_High"].fillna(0).astype(int)
+        ll_flag = df["Lower_Low"].fillna(0).astype(int)
+
+        idx = df.index
+        ll_indices = list(idx[ll_flag == 1])
+        lh_indices = list(idx[lh_flag == 1])
+
+        pos = {t: i for i, t in enumerate(idx)}
+        events = []
+
+        for lh_time in lh_indices:
+            i_lh = pos[lh_time]
+
+            # downtrend context: at least one LL before this LH
+            prev_lls = [t for t in ll_indices if t < lh_time]
+            if not prev_lls:
+                continue
+
+            lh_price = high.loc[lh_time]
+
+            # first close > LH high after LH
+            choch_time = None
+            for j in range(i_lh + 1, min(i_lh + 1 + max_bars_after_lh, len(df))):
+                if close.iloc[j] > lh_price:
+                    choch_time = idx[j]
+                    break
+            if choch_time is None:
+                continue
+
+            events.append(
+                {
+                    "type": "Bullish_CHoCH",
+                    "lh_time": lh_time,
+                    "choch_time": choch_time,
+                    "lh_price": lh_price,
+                }
+            )
+
+        return pd.DataFrame(events)
+
+
+
+    def detect_bearish_choch(self) :
+        """
+        Bearish CHoCH in an uptrend:
+
+          - Uptrend context: at least one Higher_High before a Higher_Low (HL).
+          - CHoCH bar: first bar AFTER HL where Close < HL's Low.
+
+        Returns:
+          type = 'Bearish_CHoCH'
+          hl_time, choch_time, hl_price
+        """
+        max_bars_after_hl = 40
+
+        df = self.data
+        needed = {"High", "Low", "Close", "Higher_High", "Higher_Low"}
+        if df is None or df.empty or not needed.issubset(df.columns):
+            return pd.DataFrame(columns=["type", "hl_time", "choch_time", "hl_price"])
+
+        high = df["High"]
+        low = df["Low"]
+        close = df["Close"]
+        hh_flag = df["Higher_High"].fillna(0).astype(int)
+        hl_flag = df["Higher_Low"].fillna(0).astype(int)
+
+        idx = df.index
+        hh_indices = list(idx[hh_flag == 1])
+        hl_indices = list(idx[hl_flag == 1])
+
+        pos = {t: i for i, t in enumerate(idx)}
+        events = []
+
+        for hl_time in hl_indices:
+            i_hl = pos[hl_time]
+
+            # uptrend context: at least one HH before this HL
+            prev_hhs = [t for t in hh_indices if t < hl_time]
+            if not prev_hhs:
+                continue
+
+            hl_price = low.loc[hl_time]
+
+            # first close < HL low after HL
+            choch_time = None
+            for j in range(i_hl + 1, min(i_hl + 1 + max_bars_after_hl, len(df))):
+                if close.iloc[j] < hl_price:
+                    choch_time = idx[j]
+                    break
+            if choch_time is None:
+                continue
+
+            events.append(
+                {
+                    "type": "Bearish_CHoCH",
+                    "hl_time": hl_time,
+                    "choch_time": choch_time,
+                    "hl_price": hl_price,
+                }
+            )
+
+        return pd.DataFrame(events)
+
+
+
+    def summarize_choch(self):
+        bull = self.detect_bullish_choch()
+        bear = self.detect_bearish_choch()
+
+        lines = []
+
+        # Bullish: one line per CHoCH bar, list all LHs it breaks
+        if not bull.empty:
+            grouped_bull = (
+                bull.groupby("choch_time")["lh_time"]
+                .apply(list)
+                .reset_index()
+            )
+            for _, row in grouped_bull.iterrows():
+                choch_time = row["choch_time"]
+                lh_list = sorted(row["lh_time"])
+                if len(lh_list) == 1:
+                    lines.append(
+                        f"Bullish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
+                        f"breaking LH from {lh_list[0].strftime('%d %b %Y %H:%M')}."
+                    )
+                else:
+                    first = lh_list[0].strftime("%d %b %Y %H:%M")
+                    last = lh_list[-1].strftime("%d %b %Y %H:%M")
+                    lines.append(
+                        f"Bullish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
+                        f"breaking {len(lh_list)} LHs from {first} to {last}."
+                    )
+
+        # Bearish: one line per CHoCH bar, list all HLs it breaks
+        if not bear.empty:
+            grouped_bear = (
+                bear.groupby("choch_time")["hl_time"]
+                .apply(list)
+                .reset_index()
+            )
+            for _, row in grouped_bear.iterrows():
+                choch_time = row["choch_time"]
+                hl_list = sorted(row["hl_time"])
+                if len(hl_list) == 1:
+                    lines.append(
+                        f"Bearish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
+                        f"breaking HL from {hl_list[0].strftime('%d %b %Y %H:%M')}."
+                    )
+                else:
+                    first = hl_list[0].strftime("%d %b %Y %H:%M")
+                    last = hl_list[-1].strftime("%d %b %Y %H:%M")
+                    lines.append(
+                        f"Bearish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
+                        f"breaking {len(hl_list)} HLs from {first} to {last}."
+                    )
+
+        return " ".join(lines) if lines else "No CHoCH detected."
+
+
 
     def _detect_patterns(self):
         self.data['Golden_Cross'] = ((self.data['SMA_20'] > self.data['SMA_50']) & (self.data['SMA_20'].shift() <= self.data['SMA_50'].shift())).astype(int)
@@ -1421,6 +1602,7 @@ class SymbolResult(BaseModel):
     start_datetime: Optional[str]
     trend_summary: str
     breach_summary: str
+    choch_summary: str
     last_buy_signal: Optional[str]
     last_higher_low: Optional[str]
     last_higher_low_break: Optional[str]
@@ -1465,6 +1647,8 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
                 symbol=symbol,
                 start_datetime=None,
                 trend_summary="No data fetched",
+                breach_summary="No data fetched",
+                choch_summary="No data fetched",
                 last_buy_signal=None,
                 last_higher_low=None,
                 last_higher_low_break=None,
@@ -1486,6 +1670,7 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
         analyzer.compute_primary_trend()
         primary_text = analyzer.summarize_primary_trend()
         breach_text  = analyzer.summarize_breaches_in_primary_legs()
+        choch_text = analyzer.summarize_choch()
 
         # print(primary_text)
         # if breach_text:
@@ -1536,6 +1721,7 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
             start_datetime=start_datetime_str,
             trend_summary=primary_text,
             breach_summary=str(breach_text) if breach_text is not None else None,
+            choch_summary=str(choch_text) if choch_text is not None else None,
             last_buy_signal=str(last_signal_dt) if last_signal_dt is not None else None,
             last_higher_low=str(last_HL_dt) if last_HL_dt is not None else None,
             last_higher_low_break=str(last_HL_break_dt) if last_HL_break_dt is not None else None,
