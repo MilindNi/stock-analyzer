@@ -724,47 +724,35 @@ class ForexAnalyzer:
         return " ".join(lines)
 
     def detect_bullish_choch(self):
-        """
-        Bullish CHoCH in a downtrend:
-
-          - Downtrend context: at least one Lower_Low before a Lower_High (LH).
-          - CHoCH bar: first bar AFTER LH where Close > LH's High.
-
-        Returns:
-          type = 'Bullish_CHoCH'
-          lh_time, choch_time, lh_price
-        """
-        max_bars_after_lh = 40
-
         df = self.data
+        max_bars_after_lh = 40
         needed = {"High", "Low", "Close", "Lower_High", "Lower_Low"}
         if df is None or df.empty or not needed.issubset(df.columns):
-            return pd.DataFrame(columns=["type", "lh_time", "choch_time", "lh_price"])
+            return pd.DataFrame()
 
-        high = df["High"]
-        low = df["Low"]
-        close = df["Close"]
+        high    = df["High"]
+        low     = df["Low"]
+        close   = df["Close"]
         lh_flag = df["Lower_High"].fillna(0).astype(int)
         ll_flag = df["Lower_Low"].fillna(0).astype(int)
 
-        idx = df.index
+        idx        = df.index
         ll_indices = list(idx[ll_flag == 1])
         lh_indices = list(idx[lh_flag == 1])
-
-        pos = {t: i for i, t in enumerate(idx)}
-        events = []
+        pos        = {t: i for i, t in enumerate(idx)}
+        events     = []
 
         for lh_time in lh_indices:
             i_lh = pos[lh_time]
 
-            # downtrend context: at least one LL before this LH
+            # at least 1 LL before this LH = downtrend context
             prev_lls = [t for t in ll_indices if t < lh_time]
-            if not prev_lls:
+            if len(prev_lls) < 1:
                 continue
 
             lh_price = high.loc[lh_time]
 
-            # first close > LH high after LH
+            # first close above LH
             choch_time = None
             for j in range(i_lh + 1, min(i_lh + 1 + max_bars_after_lh, len(df))):
                 if close.iloc[j] > lh_price:
@@ -773,61 +761,56 @@ class ForexAnalyzer:
             if choch_time is None:
                 continue
 
-            events.append(
-                {
-                    "type": "Bullish_CHoCH",
-                    "lh_time": lh_time,
-                    "choch_time": choch_time,
-                    "lh_price": lh_price,
-                }
-            )
+            choch_close = close.loc[choch_time]
 
-        return pd.DataFrame(events)
+            # all LHs broken by this close
+            broken_lhs = [
+                t for t in lh_indices
+                if t < choch_time and high.loc[t] < choch_close
+            ]
+            latest_lh_broken = broken_lhs[-1] if broken_lhs else lh_time
+
+            events.append({
+                "type"            : "Bullish_CHoCH",
+                "choch_time"      : choch_time,
+                "lh_time"         : lh_time,
+                "latest_lh_broken": latest_lh_broken,
+                "lhs_broken"      : len(broken_lhs),
+            })
+
+        return pd.DataFrame(events) if events else pd.DataFrame()
 
 
-
-    def detect_bearish_choch(self) :
-        """
-        Bearish CHoCH in an uptrend:
-
-          - Uptrend context: at least one Higher_High before a Higher_Low (HL).
-          - CHoCH bar: first bar AFTER HL where Close < HL's Low.
-
-        Returns:
-          type = 'Bearish_CHoCH'
-          hl_time, choch_time, hl_price
-        """
-        max_bars_after_hl = 40
-
+    def detect_bearish_choch(self):
         df = self.data
+        max_bars_after_hl = 40
         needed = {"High", "Low", "Close", "Higher_High", "Higher_Low"}
         if df is None or df.empty or not needed.issubset(df.columns):
-            return pd.DataFrame(columns=["type", "hl_time", "choch_time", "hl_price"])
+            return pd.DataFrame()
 
-        high = df["High"]
-        low = df["Low"]
-        close = df["Close"]
+        high    = df["High"]
+        low     = df["Low"]
+        close   = df["Close"]
         hh_flag = df["Higher_High"].fillna(0).astype(int)
         hl_flag = df["Higher_Low"].fillna(0).astype(int)
 
-        idx = df.index
+        idx        = df.index
         hh_indices = list(idx[hh_flag == 1])
         hl_indices = list(idx[hl_flag == 1])
-
-        pos = {t: i for i, t in enumerate(idx)}
-        events = []
+        pos        = {t: i for i, t in enumerate(idx)}
+        events     = []
 
         for hl_time in hl_indices:
             i_hl = pos[hl_time]
 
-            # uptrend context: at least one HH before this HL
+            # at least 1 HH before this HL = uptrend context
             prev_hhs = [t for t in hh_indices if t < hl_time]
-            if not prev_hhs:
+            if len(prev_hhs) < 1:
                 continue
 
-            hl_price = low.loc[hl_time]
+            hl_price = float(low.loc[hl_time])
 
-            # first close < HL low after HL
+            # first close below HL
             choch_time = None
             for j in range(i_hl + 1, min(i_hl + 1 + max_bars_after_hl, len(df))):
                 if close.iloc[j] < hl_price:
@@ -836,72 +819,113 @@ class ForexAnalyzer:
             if choch_time is None:
                 continue
 
-            events.append(
-                {
-                    "type": "Bearish_CHoCH",
-                    "hl_time": hl_time,
-                    "choch_time": choch_time,
-                    "hl_price": hl_price,
-                }
-            )
+            choch_close = float(close.loc[choch_time])
 
-        return pd.DataFrame(events)
+            # all HLs broken by this close
+            broken_hls = [
+                t for t in hl_indices
+                if t < choch_time and float(low.loc[t]) > choch_close
+            ]
+            latest_hl_broken = broken_hls[-1] if broken_hls else hl_time
 
+            events.append({
+                "type"            : "Bearish_CHoCH",
+                "choch_time"      : choch_time,
+                "hl_time"         : hl_time,
+                "latest_hl_broken": latest_hl_broken,
+                "hls_broken"      : len(broken_hls),
+            })
+
+        return pd.DataFrame(events) if events else pd.DataFrame()
+
+
+
+    def _deduplicate_choch(self, bull: pd.DataFrame, bear: pd.DataFrame):
+        import pandas as pd
+
+        rows = []
+
+        if not bull.empty:
+            for _, r in bull.iterrows():
+                rows.append({
+                    "direction"  : "Bull",
+                    "choch_time" : r["choch_time"],
+                    "ref_time"   : r["latest_lh_broken"],
+                    "breaks"     : r["lhs_broken"],
+                })
+
+        if not bear.empty:
+            for _, r in bear.iterrows():
+                rows.append({
+                    "direction"  : "Bear",
+                    "choch_time" : r["choch_time"],
+                    "ref_time"   : r["latest_hl_broken"],
+                    "breaks"     : r["hls_broken"],
+                })
+
+        if not rows:
+            return []
+
+        combined = (
+            pd.DataFrame(rows)
+            .sort_values(["choch_time", "breaks"], ascending=[True, False])
+            .reset_index(drop=True)
+        )
+
+        # per choch_time + direction keep row with most breaks
+        combined = (
+            combined
+            .groupby(["choch_time", "direction"], sort=False)
+            .first()
+            .reset_index()
+            .sort_values("choch_time")
+            .reset_index(drop=True)
+        )
+
+        # enforce alternation; on repeat direction keep stronger signal
+        deduped  = []
+        last_dir = None
+
+        for _, row in combined.iterrows():
+            d = row["direction"]
+            if d == last_dir:
+                if row["breaks"] >= deduped[-1]["breaks"]:
+                    deduped[-1] = row
+            else:
+                deduped.append(row)
+                last_dir = d
+
+        return deduped
 
 
     def summarize_choch(self):
-        bull = self.detect_bullish_choch()
-        bear = self.detect_bearish_choch()
+        bull    = self.detect_bullish_choch()
+        bear    = self.detect_bearish_choch()
+        deduped = self._deduplicate_choch(bull, bear)
+
+        if not deduped:
+            return "No CHoCH detected."
 
         lines = []
+        for row in deduped:
+            choch_ts = row["choch_time"].strftime("%d %b %Y %H:%M")
+            ref_ts   = row["ref_time"].strftime("%d %b %Y %H:%M")
+            breaks   = int(row["breaks"])
 
-        # Bullish: one line per CHoCH bar, list all LHs it breaks
-        if not bull.empty:
-            grouped_bull = (
-                bull.groupby("choch_time")["lh_time"]
-                .apply(list)
-                .reset_index()
-            )
-            for _, row in grouped_bull.iterrows():
-                choch_time = row["choch_time"]
-                lh_list = sorted(row["lh_time"])
-                if len(lh_list) == 1:
-                    lines.append(
-                        f"Bullish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
-                        f"breaking LH from {lh_list[0].strftime('%d %b %Y %H:%M')}."
-                    )
-                else:
-                    first = lh_list[0].strftime("%d %b %Y %H:%M")
-                    last = lh_list[-1].strftime("%d %b %Y %H:%M")
-                    lines.append(
-                        f"Bullish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
-                        f"breaking {len(lh_list)} LHs from {first} to {last}."
-                    )
+            if row["direction"] == "Bull":
+                break_str = f"breaking {breaks} LHs" if breaks > 1 else "breaking LH"
+                lines.append(
+                    f"Bullish CHoCH on {choch_ts} {break_str} "
+                    f"(most recent LH: {ref_ts})."
+                )
+            else:
+                break_str = f"breaking {breaks} HLs" if breaks > 1 else "breaking HL"
+                lines.append(
+                    f"Bearish CHoCH on {choch_ts} {break_str} "
+                    f"(most recent HL: {ref_ts})."
+                )
 
-        # Bearish: one line per CHoCH bar, list all HLs it breaks
-        if not bear.empty:
-            grouped_bear = (
-                bear.groupby("choch_time")["hl_time"]
-                .apply(list)
-                .reset_index()
-            )
-            for _, row in grouped_bear.iterrows():
-                choch_time = row["choch_time"]
-                hl_list = sorted(row["hl_time"])
-                if len(hl_list) == 1:
-                    lines.append(
-                        f"Bearish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
-                        f"breaking HL from {hl_list[0].strftime('%d %b %Y %H:%M')}."
-                    )
-                else:
-                    first = hl_list[0].strftime("%d %b %Y %H:%M")
-                    last = hl_list[-1].strftime("%d %b %Y %H:%M")
-                    lines.append(
-                        f"Bearish CHoCH on {choch_time.strftime('%d %b %Y %H:%M')} "
-                        f"breaking {len(hl_list)} HLs from {first} to {last}."
-                    )
-
-        return " ".join(lines) if lines else "No CHoCH detected."
+        return " ".join(lines)
 
 
 
