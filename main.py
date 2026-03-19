@@ -4,6 +4,8 @@
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Response
 from plotly.subplots import make_subplots
+import os
+from fastapi.responses import FileResponse
 
 from pydantic import BaseModel
 
@@ -1542,6 +1544,7 @@ import pandas as pd
 
 # TODO: import the real Interval and ForexAnalyzer from your own modules
 # from your_module import Interval, ForexAnalyzer
+API_BASE_URL = os.getenv("API_BASE_URL", "https://stock-analyzer-wguh.onrender.com")
 
 
 TIMEFRAME_MAP = {
@@ -1613,6 +1616,7 @@ class SymbolResult(BaseModel):
     last_morning_stars: Optional[List[str]]
     csv_filename: Optional[str]
     chart_html: Optional[str]
+    csv_url: Optional[str]   
 
 class AnalyzeResponse(BaseModel):
     results: List[SymbolResult]
@@ -1680,6 +1684,8 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
         # save csv (optional, still on server disk)
         csv_name = f"{symbol}_data.csv"
         analyzer.data.to_csv(csv_name)
+        csv_url = f"{API_BASE_URL}/download_csv?symbol={symbol}"
+
         chart_html = analyzer.plot_structure_and_patterns_plotly(symbol, int(bars_to_show))
 
 
@@ -1732,6 +1738,7 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
             last_morning_stars=[str(x) for x in recent_morning_star_dt] if recent_morning_star_dt else None,
             csv_filename=csv_name,
             chart_html=chart_html,
+            csv_url=csv_url,
         )
 
         results.append(res)
@@ -1747,3 +1754,19 @@ def analyze_endpoint(req: AnalyzeRequest):
 @app.options("/analyze")
 def options_analyze():
     return Response(status_code=200)
+
+@app.get("/download_csv")
+def download_csv(symbol: str):
+    """
+    Download the latest CSV generated for a symbol.
+    Assumes analyze_symbols has already been called for that symbol.
+    """
+    csv_name = f"{symbol.upper()}_data.csv"
+    if not os.path.exists(csv_name):
+        return Response(status_code=404, content="CSV not found for this symbol")
+
+    return FileResponse(
+        path=csv_name,
+        media_type="text/csv",
+        filename=csv_name,
+    )
