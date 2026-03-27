@@ -927,7 +927,46 @@ class ForexAnalyzer:
 
         return " ".join(lines)
 
+    def detect_choch(self):
+        """
+        CHoCH Up   : price was in downtrend (making LH/LL), then closes ABOVE last LH → bullish CHoCH
+        CHoCH Down : price was in uptrend (making HH/HL), then closes BELOW last HL → bearish CHoCH
+        """
+        # df = self.data.copy()
+        self.data['CHoCH_Bull'] = 0
+        self.data['CHoCH_Bear'] = 0
 
+        last_lh_price = None  # last Lower High level
+        last_hl_price = None  # last Higher Low level
+        in_downtrend  = False
+        in_uptrend    = False
+
+        for i in range(len(self.data)):
+            row = self.data.iloc[i]
+
+            # Track last Lower High (resistance in downtrend)
+            if row['Lower_High'] == 1:
+                last_lh_price = row['High']
+                in_downtrend  = True
+
+            # Track last Higher Low (support in uptrend)
+            if row['Higher_Low'] == 1:
+                last_hl_price = row['Low']
+                in_uptrend    = True
+
+            # Bullish CHoCH: close breaks above last Lower High
+            if in_downtrend and last_lh_price is not None:
+                if row['Close'] > last_lh_price:
+                    self.data.iloc[i, self.data.columns.get_loc('CHoCH_Bull')] = 1
+                    last_lh_price = None  # reset — CHoCH fired
+                    in_downtrend  = False
+
+            # Bearish CHoCH: close breaks below last Higher Low
+            if in_uptrend and last_hl_price is not None:
+                if row['Close'] < last_hl_price:
+                    self.data.iloc[i, self.data.columns.get_loc('CHoCH_Bear')] = 1
+                    last_hl_price = None  # reset
+                    in_uptrend    = False
 
     def _detect_patterns(self):
         self.data['Golden_Cross'] = ((self.data['SMA_20'] > self.data['SMA_50']) & (self.data['SMA_20'].shift() <= self.data['SMA_50'].shift())).astype(int)
@@ -1268,167 +1307,440 @@ class ForexAnalyzer:
         why = "Reasons: " + "; ".join(reasons) if reasons else "Neutral indicators."
         print(f"\nRecommended Action: {action} - {why}")
 
-    def plot_structure_and_patterns_plotly(self, symbol: str, periods: int) :
-        """
-        Build an interactive Plotly chart and return HTML (for Lovable/Render).
-        """
-        if self.data is None or self.data.empty:
-            return None
+    # def plot_structure_and_patterns_plotly(self, symbol: str, periods: int) :
+    #     """
+    #     Build an interactive Plotly chart and return HTML (for Lovable/Render).
+    #     """
+    #     if self.data is None or self.data.empty:
+    #         return None
+
+    #     df = self.data.tail(periods).copy()
+
+    #     price_range = df['High'].max() - df['Low'].min()
+    #     offset = price_range * 0.01
+
+    #     fig = make_subplots(rows=1, cols=1, shared_xaxes=True)
+
+    #     # Candlesticks
+    #     fig.add_trace(
+    #         go.Candlestick(
+    #             x=df.index,
+    #             open=df['Open'],
+    #             high=df['High'],
+    #             low=df['Low'],
+    #             close=df['Close'],
+    #             name="Price"
+    #         ),
+    #         row=1, col=1
+    #     )
+
+    #     # Structure
+    #     hh = df[df['Higher_High'] == 1]
+    #     hl = df[df['Higher_Low'] == 1]
+    #     ll = df[df['Lower_Low'] == 1]
+    #     lh = df[df['Lower_High'] == 1]
+
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=hh.index,
+    #             y=hh['High'] + 3*offset,
+    #             mode='markers+text',
+    #             text=['HH'] * len(hh),
+    #             textposition='top center',
+    #             marker=dict(color='blue', size=9, symbol='triangle-up'),
+    #             name='Higher High'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=lh.index,
+    #             y=lh['High'] + 1*offset,
+    #             mode='markers+text',
+    #             text=['LH'] * len(lh),
+    #             textposition='top center',
+    #             marker=dict(color='orange', size=9, symbol='triangle-down'),
+    #             name='Lower High'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=hl.index,
+    #             y=hl['Low'] - 1*offset,
+    #             mode='markers+text',
+    #             text=['HL'] * len(hl),
+    #             textposition='bottom center',
+    #             marker=dict(color='green', size=9, symbol='triangle-down'),
+    #             name='Higher Low'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=ll.index,
+    #             y=ll['Low'] - 3*offset,
+    #             mode='markers+text',
+    #             text=['LL'] * len(ll),
+    #             textposition='bottom center',
+    #             marker=dict(color='red', size=9, symbol='triangle-up'),
+    #             name='Lower Low'
+    #         ),
+    #         row=1, col=1
+    #     )
+
+    #     # Patterns
+    #     hammer = df[df['Hammer'] > 0]
+    #     engulf = df[df['Bullish_Engulfing'] > 0]
+    #     pinbar = df[df['Pin_bar'] > 0]
+    #     mstar = df[df['Morning_Star'] > 0]
+    #     estar = df[df['Evening_Star'] < 0]
+
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=hammer.index,
+    #             y=hammer['Low'] - 5*offset,
+    #             mode='markers',
+    #             marker=dict(color='green', size=8, symbol='circle'),
+    #             name='Hammer',
+    #             hovertext=['Hammer'] * len(hammer),
+    #             hoverinfo='text+x+y'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=engulf.index,
+    #             y=engulf['Low'] - 7*offset,
+    #             mode='markers',
+    #             marker=dict(color='darkgreen', size=8, symbol='square'),
+    #             name='Bull Engulfing',
+    #             hovertext=['Bullish Engulfing'] * len(engulf),
+    #             hoverinfo='text+x+y'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=pinbar.index,
+    #             y=pinbar['Low'] - 9*offset,
+    #             mode='markers',
+    #             marker=dict(color='teal', size=8, symbol='diamond'),
+    #             name='Pin Bar',
+    #             hovertext=['Pin bar'] * len(pinbar),
+    #             hoverinfo='text+x+y'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=mstar.index,
+    #             y=mstar['Low'] - 11*offset,
+    #             mode='markers',
+    #             marker=dict(color='purple', size=10, symbol='star'),
+    #             name='Morning Star',
+    #             hovertext=['Morning Star'] * len(mstar),
+    #             hoverinfo='text+x+y'
+    #         ),
+    #         row=1, col=1
+    #     )
+    #     fig.add_trace(
+    #         go.Scatter(
+    #             x=estar.index,
+    #             y=estar['High'] + 5*offset,
+    #             mode='markers',
+    #             marker=dict(color='red', size=10, symbol='x'),
+    #             name='Evening Star',
+    #             hovertext=['Evening Star'] * len(estar),
+    #             hoverinfo='text+x+y'
+    #         ),
+    #         row=1, col=1
+    #     )
+
+    #     fig.update_layout(
+    #         title=f"{symbol} – Structure & Patterns",
+    #         xaxis_title="Time",
+    #         yaxis_title="Price",
+    #         xaxis_rangeslider_visible=False,
+    #         hovermode='x unified'
+    #     )
+
+    #     # Return HTML snippet for embedding
+    #     return fig.to_html(full_html=False)
+
+    def plot_structure_and_patterns_plotly(self, symbol: str, periods: int):
+        import numpy as np
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
 
         df = self.data.tail(periods).copy()
 
         price_range = df['High'].max() - df['Low'].min()
-        offset = price_range * 0.01
+        base_offset = price_range * 0.015  # slightly larger base gap
 
-        fig = make_subplots(rows=1, cols=1, shared_xaxes=True)
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            row_heights=[0.85, 0.15],  # main chart + volume strip
+            vertical_spacing=0.03
+        )
 
-        # Candlesticks
+        # ── Candlesticks ─────────────────────────────────────────────
         fig.add_trace(
             go.Candlestick(
                 x=df.index,
-                open=df['Open'],
-                high=df['High'],
-                low=df['Low'],
-                close=df['Close'],
-                name="Price"
+                open=df['Open'], high=df['High'],
+                low=df['Low'],   close=df['Close'],
+                name="Price",
+                increasing_line_color='#26a69a',
+                decreasing_line_color='#ef5350',
+                whiskerwidth=0.5,
             ),
             row=1, col=1
         )
 
-        # Structure
-        hh = df[df['Higher_High'] == 1]
-        hl = df[df['Higher_Low'] == 1]
-        ll = df[df['Lower_Low'] == 1]
-        lh = df[df['Lower_High'] == 1]
-
+        # ── Volume bars (row 2) ───────────────────────────────────────
+        colors = ['#26a69a' if c >= o else '#ef5350'
+                  for c, o in zip(df['Close'], df['Open'])]
         fig.add_trace(
-            go.Scatter(
-                x=hh.index,
-                y=hh['High'] + 3*offset,
+            go.Bar(
+                x=df.index, y=df['Volume'],
+                marker_color=colors, opacity=0.6,
+                name='Volume', showlegend=False
+            ),
+            row=2, col=1
+        )
+
+        # ── Helper: stagger labels that land on the same x-index ─────
+        def stagger_y(series_index, base_y_series, step, direction=1):
+            """
+            Returns a list of (x, y, text) with y nudged so nearby labels
+            don't stack on top of each other.
+            direction: +1 = push up, -1 = push down
+            """
+            positions = []
+            last_x_positions = {}  # x_idx → list of y already used
+            for xi, (idx, row_val) in enumerate(zip(series_index, base_y_series)):
+                x_key = str(idx)[:10]  # group by date (YYYY-MM-DD)
+                used = last_x_positions.get(x_key, [])
+                # Start from base and keep nudging if too close
+                y = row_val
+                attempts = 0
+                while any(abs(y - u) < step * 0.8 for u in used) and attempts < 6:
+                    y += direction * step
+                    attempts += 1
+                used.append(y)
+                last_x_positions[x_key] = used
+                positions.append(y)
+            return positions
+
+        # ── Structure labels ──────────────────────────────────────────
+        structure_cfg = [
+            # (column, anchor, direction, offset_mult, color, symbol, label)
+            ('Higher_High', 'High',  +1,  2.5, '#1565C0', 'triangle-up',   'HH'),
+            ('Lower_High',  'High',  +1,  1.0, '#E65100', 'triangle-down', 'LH'),
+            ('Higher_Low',  'Low',   -1,  1.0, '#2E7D32', 'triangle-up',   'HL'),
+            ('Lower_Low',   'Low',   -1,  2.5, '#B71C1C', 'triangle-down', 'LL'),
+        ]
+
+        for col, anchor, direction, mult, color, sym, label in structure_cfg:
+            sub = df[df[col] == 1]
+            if sub.empty:
+                continue
+            base_y = sub[anchor] + direction * mult * base_offset
+            y_vals = stagger_y(sub.index, base_y, base_offset * 1.2, direction)
+
+            fig.add_trace(
+                go.Scatter(
+                    x=sub.index,
+                    y=y_vals,
+                    mode='markers+text',
+                    text=[f'<b>{label}</b>'] * len(sub),
+                    textposition='top center' if direction > 0 else 'bottom center',
+                    textfont=dict(size=11, color=color),
+                    marker=dict(color=color, size=10, symbol=sym,
+                                line=dict(width=1, color='white')),
+                    name=label,
+                    legendgroup='structure',
+                    legendgrouptitle_text='Structure' if label == 'HH' else None,
+                    hovertemplate=(
+                        f"<b>{label}</b><br>"
+                        "%{x|%Y-%m-%d}<br>"
+                        "Price: %{customdata:.2f}<extra></extra>"
+                    ),
+                    customdata=sub[anchor].values
+                ),
+                row=1, col=1
+            )
+            # ── Change of Character (CHoCH) ───────────────────────────────
+        choch_bull = df[df['CHoCH_Bull'] == 1]
+        choch_bear = df[df['CHoCH_Bear'] == 1]
+
+        # Bullish CHoCH — green label above candle
+        if not choch_bull.empty:
+            fig.add_trace(go.Scatter(
+                x=choch_bull.index,
+                y=choch_bull['High'] + 4 * base_offset,
                 mode='markers+text',
-                text=['HH'] * len(hh),
+                text=['<b>CHoCH↑</b>'] * len(choch_bull),
                 textposition='top center',
-                marker=dict(color='blue', size=9, symbol='triangle-up'),
-                name='Higher High'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=lh.index,
-                y=lh['High'] + 1*offset,
+                textfont=dict(size=11, color='#00C853'),
+                marker=dict(color='#00C853', size=12, symbol='star',
+                            line=dict(width=1.5, color='white')),
+                name='CHoCH Bullish',
+                legendgroup='choch',
+                legendgrouptitle_text='Change of Character',
+                hovertemplate="<b>Bullish CHoCH</b><br>%{x|%Y-%m-%d}<br>Close: %{customdata:.2f}<extra></extra>",
+                customdata=choch_bull['Close'].values
+            ), row=1, col=1)
+
+        # Bearish CHoCH — red label below candle
+        if not choch_bear.empty:
+            fig.add_trace(go.Scatter(
+                x=choch_bear.index,
+                y=choch_bear['Low'] - 4 * base_offset,
                 mode='markers+text',
-                text=['LH'] * len(lh),
-                textposition='top center',
-                marker=dict(color='orange', size=9, symbol='triangle-down'),
-                name='Lower High'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=hl.index,
-                y=hl['Low'] - 1*offset,
-                mode='markers+text',
-                text=['HL'] * len(hl),
+                text=['<b>CHoCH↓</b>'] * len(choch_bear),
                 textposition='bottom center',
-                marker=dict(color='green', size=9, symbol='triangle-down'),
-                name='Higher Low'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=ll.index,
-                y=ll['Low'] - 3*offset,
-                mode='markers+text',
-                text=['LL'] * len(ll),
-                textposition='bottom center',
-                marker=dict(color='red', size=9, symbol='triangle-up'),
-                name='Lower Low'
-            ),
-            row=1, col=1
-        )
+                textfont=dict(size=11, color='#D50000'),
+                marker=dict(color='#D50000', size=12, symbol='star',
+                            line=dict(width=1.5, color='white')),
+                name='CHoCH Bearish',
+                legendgroup='choch',
+                hovertemplate="<b>Bearish CHoCH</b><br>%{x|%Y-%m-%d}<br>Close: %{customdata:.2f}<extra></extra>",
+                customdata=choch_bear['Close'].values
+            ), row=1, col=1)
 
-        # Patterns
-        hammer = df[df['Hammer'] > 0]
-        engulf = df[df['Bullish_Engulfing'] > 0]
-        pinbar = df[df['Pin_bar'] > 0]
-        mstar = df[df['Morning_Star'] > 0]
-        estar = df[df['Evening_Star'] < 0]
+        # Horizontal dashed line at the broken level for each CHoCH
+        for idx, row_data in choch_bull.iterrows():
+            fig.add_hline(
+                y=row_data['Close'],
+                line=dict(color='rgba(0,200,83,0.3)', width=1, dash='dash'),
+                row=1, col=1
+            )
+        for idx, row_data in choch_bear.iterrows():
+            fig.add_hline(
+                y=row_data['Close'],
+                line=dict(color='rgba(213,0,0,0.3)', width=1, dash='dash'),
+                row=1, col=1
+            )
 
-        fig.add_trace(
-            go.Scatter(
-                x=hammer.index,
-                y=hammer['Low'] - 5*offset,
-                mode='markers',
-                marker=dict(color='green', size=8, symbol='circle'),
-                name='Hammer',
-                hovertext=['Hammer'] * len(hammer),
-                hoverinfo='text+x+y'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=engulf.index,
-                y=engulf['Low'] - 7*offset,
-                mode='markers',
-                marker=dict(color='darkgreen', size=8, symbol='square'),
-                name='Bull Engulfing',
-                hovertext=['Bullish Engulfing'] * len(engulf),
-                hoverinfo='text+x+y'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=pinbar.index,
-                y=pinbar['Low'] - 9*offset,
-                mode='markers',
-                marker=dict(color='teal', size=8, symbol='diamond'),
-                name='Pin Bar',
-                hovertext=['Pin bar'] * len(pinbar),
-                hoverinfo='text+x+y'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=mstar.index,
-                y=mstar['Low'] - 11*offset,
-                mode='markers',
-                marker=dict(color='purple', size=10, symbol='star'),
-                name='Morning Star',
-                hovertext=['Morning Star'] * len(mstar),
-                hoverinfo='text+x+y'
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=estar.index,
-                y=estar['High'] + 5*offset,
-                mode='markers',
-                marker=dict(color='red', size=10, symbol='x'),
-                name='Evening Star',
-                hovertext=['Evening Star'] * len(estar),
-                hoverinfo='text+x+y'
-            ),
-            row=1, col=1
-        )
 
+        # ── Pattern markers below candles ────────────────────────────
+        pattern_cfg = [
+            # (column, condition, anchor, direction, offset_mult, color, symbol, label)
+            ('Hammer',            '>0', 'Low',  -1,  4,  '#00897B', 'circle',   'Hammer'),
+            ('Bullish_Engulfing', '>0', 'Low',  -1,  6,  '#1B5E20', 'square',   'Bull Engulf'),
+            ('Pin_bar',           '>0', 'Low',  -1,  8,  '#006064', 'diamond',  'Pin Bar'),
+            ('Morning_Star',      '>0', 'Low',  -1, 10,  '#6A1B9A', 'star',     'Morning ★'),
+            ('Evening_Star',      '<0', 'High', +1,  4,  '#C62828', 'x',        'Evening ★'),
+        ]
+
+        for col, cond, anchor, direction, mult, color, sym, label in pattern_cfg:
+            if cond == '>0':
+                sub = df[df[col] > 0]
+            else:
+                sub = df[df[col] < 0]
+            if sub.empty:
+                continue
+
+            y_vals = sub[anchor] + direction * mult * base_offset
+
+            fig.add_trace(
+                go.Scatter(
+                    x=sub.index,
+                    y=y_vals,
+                    mode='markers+text',
+                    text=[label[0]] * len(sub),   # single-char label next to marker
+                    textposition='bottom center' if direction < 0 else 'top center',
+                    textfont=dict(size=8, color=color),
+                    marker=dict(color=color, size=10, symbol=sym,
+                                line=dict(width=1, color='white')),
+                    name=label,
+                    legendgroup='patterns',
+                    legendgrouptitle_text='Patterns' if label == 'Hammer' else None,
+                    hovertemplate=(
+                        f"<b>{label}</b><br>"
+                        "%{x|%Y-%m-%d}<br>"
+                        "Price: %{customdata:.2f}<extra></extra>"
+                    ),
+                    customdata=sub[anchor].values
+                ),
+                row=1, col=1
+            )
+
+        # ── Swing structure line (connect HH/HL pivots) ───────────────
+    # ── Swing lines ───────────────────────────────────────────────
+
+        # Uptrend swing: connects HH + HL pivots (blue dotted)
+        up_pivots = pd.concat([
+            df[df['Higher_High'] == 1][['High']].rename(columns={'High': 'price'}),
+            df[df['Higher_Low']  == 1][['Low']].rename(columns={'Low':  'price'})
+        ]).sort_index()
+
+        if len(up_pivots) >= 2:
+            fig.add_trace(go.Scatter(
+                x=up_pivots.index, y=up_pivots['price'],
+                mode='lines',
+                line=dict(color='rgba(21, 101, 192, 0.35)', width=1.5, dash='dot'),
+                name='Uptrend Swing', hoverinfo='skip'
+            ), row=1, col=1)
+
+        # Downtrend swing: connects LH + LL pivots (red dotted)
+        down_pivots = pd.concat([
+            df[df['Lower_High'] == 1][['High']].rename(columns={'High': 'price'}),
+            df[df['Lower_Low']  == 1][['Low']].rename(columns={'Low':  'price'})
+        ]).sort_index()
+
+        if len(down_pivots) >= 2:
+            fig.add_trace(go.Scatter(
+                x=down_pivots.index, y=down_pivots['price'],
+                mode='lines',
+                line=dict(color='rgba(183, 28, 28, 0.35)', width=1.5, dash='dot'),
+                name='Downtrend Swing', hoverinfo='skip'
+            ), row=1, col=1)
+
+
+        # ── Layout ────────────────────────────────────────────────────
         fig.update_layout(
-            title=f"{symbol} – Structure & Patterns",
-            xaxis_title="Time",
-            yaxis_title="Price",
+            title=dict(
+                text=(
+                    f"<b>{symbol}</b> — Market Structure & Candlestick Patterns"
+                    "<br><span style='font-size:13px;font-weight:normal;color:gray'>"
+                    "HH/HL = Uptrend | LH/LL = Downtrend</span>"
+                ),
+                font=dict(size=18)
+            ),
             xaxis_rangeslider_visible=False,
-            hovermode='x unified'
+            hovermode='x unified',
+            legend=dict(
+                groupclick='toggleitem',
+                bgcolor='rgba(0,0,0,0.03)',
+                bordercolor='rgba(0,0,0,0.15)',
+                borderwidth=1,
+                font=dict(size=11),
+                tracegroupgap=8,
+                x=1.01, y=1,
+                xanchor='left',
+                yanchor='top'
+            ),
+            plot_bgcolor='#fafafa',
+            paper_bgcolor='white',
+            margin=dict(l=60, r=160, t=80, b=40),
         )
 
-        # Return HTML snippet for embedding
-        return fig.to_html(full_html=False)
+        fig.update_yaxes(title_text="Price (₹)", row=1, col=1,
+                        showgrid=True, gridcolor='rgba(0,0,0,0.06)')
+        fig.update_yaxes(title_text="Volume", row=2, col=1,
+                        showgrid=False)
+        fig.update_xaxes(
+            showgrid=True, gridcolor='rgba(0,0,0,0.05)',
+            tickformat='%b %d',
+            row=1, col=1
+        )
+        fig.update_xaxes(row=2, col=1, title_text="Date")
 
+        return fig.to_html(full_html=False)
 
     def plot_recent(self, symbol, periods=20):
         if self.data is None or self.data.empty:
@@ -1696,6 +2008,7 @@ def analyze_symbols(symbols: str, timeframe: str, bars_to_show: int) -> AnalyzeR
         analyzer.generate_signals()
         analyzer.score_break_confirmations()
         analyzer.compute_primary_trend()
+        analyzer.detect_choch()
         primary_text = analyzer.summarize_primary_trend()
         breach_text  = analyzer.summarize_breaches_in_primary_legs()
         choch_text = analyzer.summarize_choch()
