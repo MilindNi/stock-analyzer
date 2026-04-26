@@ -1790,7 +1790,7 @@ def analyze_multiple_symbols(symbols, username=None, password=None, recent_signa
     , "AXISBANK": "NSE", "BAJFINANCE": "NSE", "ITC": "NSE", "LT": "NSE", "ASIANPAINT": "NSE", "MARUTI": "NSE", "M&M": "NSE", "SUNPHARMA": "NSE"
     , "TITAN": "NSE", "ULTRACEMCO": "NSE", "GRSE": "NSE", "PAYTM": "NSE", "PFC": "NSE", "HIRECT": "BSE", "GODREJAGRO": "NSE"
     , "ETERNAL": "NSE", "OLAELEC": "NSE", "ASTERDM": "NSE", "RALLIS": "NSE", "PCBL": "NSE", "LINDEINDIA": "NSE"
-    , "SUZLON": "NSE"
+    , "SUZLON": "NSE", "HONASA": "NSE", "ASTERDM": "NSE", "63MOONS": "NSE", "KARMAENG": "NSE"
 }
 
     patterns_list = [
@@ -1926,7 +1926,8 @@ exchange_map = {
     "ULTRACEMCO": "NSE", "GRSE": "NSE", "PAYTM": "NSE", "PFC": "NSE",
     "HIRECT": "BSE", "GODREJAGRO": "NSE", "MAXHEALTH": "NSE", "ETERNAL": "NSE",
     "OLAELEC": "NSE", "ASTERDM": "NSE", "RALLIS": "NSE", "PCBL": "NSE",
-    "LINDEINDIA": "NSE", "SUZLON": "NSE",
+    "LINDEINDIA": "NSE", "SUZLON": "NSE", "HONASA": "NSE", "ASTERDM": "NSE", 
+    "63MOONS": "NSE", "KARMAENG": "NSE"
 }
 
 # ---------- API MODELS ----------
