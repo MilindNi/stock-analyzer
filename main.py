@@ -929,44 +929,61 @@ class ForexAnalyzer:
 
     def detect_choch(self):
         """
-        CHoCH Up   : price was in downtrend (making LH/LL), then closes ABOVE last LH → bullish CHoCH
-        CHoCH Down : price was in uptrend (making HH/HL), then closes BELOW last HL → bearish CHoCH
+        CHoCH_Bull = 1 : downtrend → close breaks above last LH + volume spike + no reclaim
+        CHoCH_Bear = 1 : uptrend  → close breaks below last HL + volume spike + no reclaim
         """
-        # df = self.data.copy()
+        vol_window = 20
+        spike_mult = 1.5
+        reclaim_bars = 2
         self.data['CHoCH_Bull'] = 0
         self.data['CHoCH_Bear'] = 0
+        self.data['_vol_ma']    = self.data['Volume'].rolling(vol_window).mean()
 
-        last_lh_price = None  # last Lower High level
-        last_hl_price = None  # last Higher Low level
+        last_lh_price = None
+        last_hl_price = None
         in_downtrend  = False
         in_uptrend    = False
 
         for i in range(len(self.data)):
             row = self.data.iloc[i]
 
-            # Track last Lower High (resistance in downtrend)
             if row['Lower_High'] == 1:
                 last_lh_price = row['High']
                 in_downtrend  = True
 
-            # Track last Higher Low (support in uptrend)
             if row['Higher_Low'] == 1:
                 last_hl_price = row['Low']
                 in_uptrend    = True
 
-            # Bullish CHoCH: close breaks above last Lower High
+            # ── BULLISH CHoCH ────────────────────────────────────────────
             if in_downtrend and last_lh_price is not None:
                 if row['Close'] > last_lh_price:
-                    self.data.iloc[i, self.data.columns.get_loc('CHoCH_Bull')] = 1
-                    last_lh_price = None  # reset — CHoCH fired
+                    vol_ma    = row['_vol_ma']
+                    vol_spike = pd.notna(vol_ma) and row['Volume'] > vol_ma * spike_mult
+                    future    = self.data['Close'].iloc[i + 1 : i + 1 + reclaim_bars]
+                    no_reclaim = len(future) > 0 and all(c > last_lh_price for c in future)
+
+                    if vol_spike:
+                        self.data.iloc[i, self.data.columns.get_loc('CHoCH_Bull')] = 1
+
+                    last_lh_price = None
                     in_downtrend  = False
 
-            # Bearish CHoCH: close breaks below last Higher Low
+            # ── BEARISH CHoCH ────────────────────────────────────────────
             if in_uptrend and last_hl_price is not None:
                 if row['Close'] < last_hl_price:
-                    self.data.iloc[i, self.data.columns.get_loc('CHoCH_Bear')] = 1
-                    last_hl_price = None  # reset
+                    vol_ma    = row['_vol_ma']
+                    vol_spike = pd.notna(vol_ma) and row['Volume'] > vol_ma * spike_mult
+                    future    = self.data['Close'].iloc[i + 1 : i + 1 + reclaim_bars]
+                    no_reclaim = len(future) > 0 and all(c < last_hl_price for c in future)
+
+                    if vol_spike:
+                        self.data.iloc[i, self.data.columns.get_loc('CHoCH_Bear')] = 1
+
+                    last_hl_price = None
                     in_uptrend    = False
+
+        self.data.drop(columns=['_vol_ma'], inplace=True)
 
     def _detect_patterns(self):
         self.data['Golden_Cross'] = ((self.data['SMA_20'] > self.data['SMA_50']) & (self.data['SMA_20'].shift() <= self.data['SMA_50'].shift())).astype(int)
